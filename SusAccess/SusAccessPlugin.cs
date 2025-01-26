@@ -159,4 +159,15 @@ namespace SusAccess
             }
         }
     }
+
+    [HarmonyPatch(typeof(ExileController))]
+    public static class ExileControllerPatch
+    {
+        [HarmonyPatch(typeof(ExileController), "HandleText")]
+        [HarmonyPostfix]
+        public static void HandleTextPostfix(ExileController __instance)
+        {
+            SpeechSynthesizer.SpeakText(__instance.completeString);
+        }
+    }
 }
