@@ -6,6 +6,7 @@ using TMPro;
 using BepInEx.Logging;
 using BepInEx.Configuration;
 using SusAccess.Speech;
+using UnityEngine.SceneManagement;
 
 namespace SusAccess.UI;
 
@@ -19,6 +20,7 @@ public class UIAccessibilityHandler {
     private readonly ManualLogSource logger;
 
     // Keybind configuration
+    private readonly ConfigEntry<KeyCode> DebugKey;
     private readonly ConfigEntry<KeyCode> nextButtonKey;
     private readonly ConfigEntry<KeyCode> previousButtonKey;
     private readonly ConfigEntry<KeyCode> activateButtonKey;
@@ -33,10 +35,12 @@ public class UIAccessibilityHandler {
 
     public UIAccessibilityHandler(
         ManualLogSource log,
+        ConfigEntry<KeyCode> debugKey,
         ConfigEntry<KeyCode> nextKey,
         ConfigEntry<KeyCode> prevKey,
         ConfigEntry<KeyCode> activateKey) {
         logger = log;
+        this.DebugKey = debugKey;
         nextButtonKey = nextKey;
         previousButtonKey = prevKey;
         activateButtonKey = activateKey;
@@ -218,6 +222,9 @@ public class UIAccessibilityHandler {
                     selectedButton.ReceiveClickUp();
                 }
             }
+
+            // Handle debug keys
+            if (Input.GetKeyDown(KeyCode.F3)) SpeechSynthesizer.SpeakText($"Current scene: {GetCurrentScene()} Current element: {currentElement}");
         }
         catch (Exception e) {
             logger.LogError($"Error in keyboard navigation: {e}");

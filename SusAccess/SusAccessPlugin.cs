@@ -28,6 +28,7 @@ public partial class SusAccessPlugin : BasePlugin {
     public ConfigEntry<KeyCode> ActivateButtonKey { get; private set; }
     public ConfigEntry<KeyCode> ScanSurroundingsKey { get; private set; }
     public ConfigEntry<KeyCode> TaskDetectionKey { get; private set; }
+    public ConfigEntry<KeyCode> DebugKey { get; private set; }
 
     // Core handlers for UI and navigation features
     public UIAccessibilityHandler uiHandler;
@@ -43,14 +44,17 @@ public partial class SusAccessPlugin : BasePlugin {
         ActivateButtonKey = Config.Bind("Controls", "ActivateButton", KeyCode.Return, "Key to activate selected button");
         ScanSurroundingsKey = Config.Bind("Controls", "ScanSurroundings", KeyCode.Tab, "Key to scan surroundings");
         TaskDetectionKey = Config.Bind("Controls", "TaskDetection", KeyCode.T, "Key to detect nearest task");
+        DebugKey = Config.Bind("Controls", "LogUIInfo", KeyCode.F3, "Used for debugging Sus Access. Meant for developers only.");
 
         Log.LogInfo($"Navigation keys configured: Up={PreviousButtonKey.Value}, Down={NextButtonKey.Value}, " +
                    $"Activate={ActivateButtonKey.Value}, Scan={ScanSurroundingsKey.Value}, " +
-                   $"Task={TaskDetectionKey.Value}");
+                   $"Task={TaskDetectionKey.Value}, " +
+                   $"Debug={DebugKey.Value}");
 
         // Initialize core handlers
         uiHandler = new UIAccessibilityHandler(
             Log,
+            DebugKey,
             NextButtonKey,
             PreviousButtonKey,
             ActivateButtonKey
