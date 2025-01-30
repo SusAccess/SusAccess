@@ -10,6 +10,78 @@ using UnityEngine.SceneManagement;
 
 namespace SusAccess.UI;
 
+// Represents a custom menu layout configuration for a specific scene
+public class MenuLayoutConfig {
+    public List<string> OrderedElements { get; set; } = new();
+    public List<string> HiddenElements { get; set; } = new();
+    public bool HideUnorganizedElements { get; set; } = false;
+}
+
+// Fluent builder for creating menu layouts
+public class MenuLayoutBuilder {
+    private readonly MenuLayoutConfig config = new();
+    private readonly string sceneName;
+
+    private MenuLayoutBuilder(string sceneName) {
+        this.sceneName = sceneName;
+    }
+
+    // Creates a new menu layout builder for the specified scene
+    public static MenuLayoutBuilder ForScene(string sceneName) {
+        return new MenuLayoutBuilder(sceneName);
+    }
+
+    // Adds elements in the specified order
+    public MenuLayoutBuilder WithElements(params string[] elements) {
+        config.OrderedElements.AddRange(elements);
+        return this;
+    }
+
+    // Hides the specified elements from the menu
+    public MenuLayoutBuilder HideElements(params string[] elements) {
+        config.HiddenElements.AddRange(elements);
+        return this;
+    }
+
+    // Sets whether to hide elements not explicitly ordered
+    public MenuLayoutBuilder HideUnorganizedElements(bool hide = true) {
+        config.HideUnorganizedElements = hide;
+        return this;
+    }
+
+    // Builds and applies the menu layout configuration
+    public void Apply(UIAccessibilityHandler handler) {
+        handler.SetMenuConfig(sceneName, config);
+    }
+}
+
+// Extension methods for UIAccessibilityHandler to support simpler configuration
+public static class UIAccessibilityHandlerExtensions {
+    // Configure menu with just ordered elements
+    public static void ConfigureMenu(
+        this UIAccessibilityHandler handler,
+        string sceneName,
+        params string[] orderedElements) {
+        MenuLayoutBuilder.ForScene(sceneName)
+            .WithElements(orderedElements)
+            .Apply(handler);
+    }
+
+    // Configure menu with ordered and hidden elements
+    public static void ConfigureMenu(
+        this UIAccessibilityHandler handler,
+        string sceneName,
+        string[] orderedElements,
+        string[] hiddenElements,
+        bool hideUnorganizedElements = false) {
+        MenuLayoutBuilder.ForScene(sceneName)
+            .WithElements(orderedElements)
+            .HideElements(hiddenElements)
+            .HideUnorganizedElements(hideUnorganizedElements)
+            .Apply(handler);
+    }
+}
+
 // Handles general UI accessibility
 public class UIAccessibilityHandler {
     private const float VERTICAL_THRESHOLD = 0.1f;  // Distance threshold for grouping UI elements vertically
@@ -26,11 +98,24 @@ public class UIAccessibilityHandler {
     private readonly ConfigEntry<KeyCode> activateButtonKey;
 
     // Custom menu layout configuration
-    private Dictionary<string, MenuLayoutConfig> sceneMenuConfigs = new Dictionary<string, MenuLayoutConfig>();
+    private readonly Dictionary<string, MenuLayoutConfig> sceneMenuConfigs = new();
     private string currentScene = "";
 
     public string GetCurrentScene() {
+        UpdateSceneInfo();
         return currentScene;
+    }
+
+    private void UpdateSceneInfo() {
+        try {
+            Scene activeScene = SceneManager.GetActiveScene();
+            if (activeScene.name != currentScene) {
+                UpdateCurrentScene(activeScene.name);
+            }
+        }
+        catch (Exception e) {
+            logger.LogError($"Error updating scene info: {e}");
+        }
     }
 
     public UIAccessibilityHandler(
@@ -46,13 +131,6 @@ public class UIAccessibilityHandler {
         activateButtonKey = activateKey;
     }
 
-    // Represents a custom menu layout configuration for a specific scene
-    public class MenuLayoutConfig {
-        public List<string> OrderedElements { get; set; } = new List<string>();
-        public List<string> HiddenElements { get; set; } = new List<string>();
-        public bool HideUnorganizedElements { get; set; } = false;
-    }
-
     // Adds or updates a menu layout configuration for a specific scene
     public void SetMenuConfig(string sceneName, MenuLayoutConfig config) {
         sceneMenuConfigs[sceneName] = config;
@@ -64,6 +142,8 @@ public class UIAccessibilityHandler {
         if (currentScene != sceneName) {
             logger.LogInfo($"Scene changing from '{currentScene}' to '{sceneName}'");
             currentScene = sceneName;
+            // Reset elements to force a refresh when entering new scene
+            currentElements.Clear();
         }
     }
 
@@ -189,7 +269,6 @@ public class UIAccessibilityHandler {
     public void HandleUpdate(ControllerManager manager) {
         HandleKeyboardNavigation(manager);
         HandleScreenReader(manager);
-        UpdateCurrentScene(SceneManager.GetActiveScene().name);
     }
 
     // Handles keyboard navigation input and button activation
@@ -225,7 +304,11 @@ public class UIAccessibilityHandler {
             }
 
             // Handle debug keys
-            if (Input.GetKeyDown(KeyCode.F3)) SpeechSynthesizer.SpeakText($"Current scene: {GetCurrentScene()} Current element: {currentElement}");
+            if (Input.GetKeyDown(KeyCode.F3)) {
+                string currentSceneName = GetCurrentScene();
+                string elementName = currentElement != null ? GetButtonText(currentElement as PassiveButton) : "None";
+                SpeechSynthesizer.SpeakText($"Current scene: {currentSceneName}, Current element: {elementName}");
+            }
         }
         catch (Exception e) {
             logger.LogError($"Error in keyboard navigation: {e}");
@@ -235,7 +318,7 @@ public class UIAccessibilityHandler {
         }
     }
 
-    // Handles screen reader announcements for UI changes and focus updates
+    // Handles screen reader announcements for UI changes
     private void HandleScreenReader(ControllerManager manager) {
         var newElements = GetSortedElements(manager);
 
@@ -281,6 +364,9 @@ public class UIAccessibilityHandler {
     // Handles UI element changes including logging and announcements
     private void HandleElementsChanged(ControllerManager manager, List<UiElement> newElements) {
         try {
+            // Check for scene changes first
+            UpdateSceneInfo();
+
             if (manager == null) {
                 logger.LogWarning("Null manager in HandleElementsChanged");
                 return;
