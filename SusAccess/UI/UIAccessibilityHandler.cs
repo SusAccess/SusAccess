@@ -189,6 +189,7 @@ public class UIAccessibilityHandler {
     public void HandleUpdate(ControllerManager manager) {
         HandleKeyboardNavigation(manager);
         HandleScreenReader(manager);
+        UpdateCurrentScene(SceneManager.GetActiveScene().name);
     }
 
     // Handles keyboard navigation input and button activation
