@@ -7,6 +7,7 @@ using BepInEx.Logging;
 using BepInEx.Configuration;
 using SusAccess.Speech;
 using UnityEngine.SceneManagement;
+using Il2CppSystem.Linq;
 
 namespace SusAccess.UI;
 
@@ -15,6 +16,8 @@ public class MenuLayoutConfig {
     public List<string> OrderedElements { get; set; } = new();
     public List<string> HiddenElements { get; set; } = new();
     public bool HideUnorganizedElements { get; set; } = false;
+    public Action<MenuLayoutConfig> update { get; set; } = null;
+    public Action backAction { get; set; } = null;
 }
 
 // Fluent builder for creating menu layouts
@@ -129,6 +132,8 @@ public class UIAccessibilityHandler {
         nextButtonKey = nextKey;
         previousButtonKey = prevKey;
         activateButtonKey = activateKey;
+
+        configureLayouts();
     }
 
     // Adds or updates a menu layout configuration for a specific scene
@@ -269,6 +274,7 @@ public class UIAccessibilityHandler {
     public void HandleUpdate(ControllerManager manager) {
         HandleKeyboardNavigation(manager);
         HandleScreenReader(manager);
+        runConfigPayloads();
     }
 
     // Handles keyboard navigation input and button activation
@@ -440,5 +446,58 @@ public class UIAccessibilityHandler {
         catch (Exception e) {
             logger.LogError($"Error announcing element: {e}");
         }
+    }
+
+    // Variables used for menu layouts
+    private List<string> mainMenuMainButtons = new List<string> {
+                            "Play",
+                "Inventory",
+                "Shop",
+                "News",
+                "My Account",
+                "Settings",
+                "Quit"
+        };
+    private bool mainMenuRightPanelActive = false;
+
+    // Runs at initialization and configures all custom layouts
+    private void configureLayouts() {
+        MenuLayoutConfig mainMenuConfig = new MenuLayoutConfig {
+            OrderedElements = mainMenuMainButtons,
+            HideUnorganizedElements = true,
+            update = (MenuLayoutConfig config) => {
+                GameObject rightPanel = GameObject.Find("RightPanelMask");
+                if (rightPanel != null && !mainMenuRightPanelActive) {
+                    config.OrderedElements = new List<string> {
+                        "Online",
+                        "Local",
+                        "Practice",
+                        "How To Play"
+                    };
+
+                    config.backAction = () => {
+                        config.OrderedElements = mainMenuMainButtons;
+                        config.backAction = null;
+                        rightPanel.SetActive(false);
+                        mainMenuRightPanelActive = false;
+                    };
+
+                    mainMenuRightPanelActive = true;
+
+                    logger.LogInfo("Detected right panel");
+                }
+            }
+        };
+
+        SetMenuConfig("MainMenu", mainMenuConfig);
+    }
+
+    public void runConfigPayloads() {
+        sceneMenuConfigs.TryGetValue(currentScene, out MenuLayoutConfig config);
+
+        if (config == null) return;
+
+        if (config.update != null) config.update.Invoke(config);
+        if (Input.GetKeyDown(KeyCode.Backspace) && config.backAction != null) config.backAction.Invoke();
     }
 }
