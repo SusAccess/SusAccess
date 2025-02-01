@@ -1,4 +1,4 @@
-﻿using BepInEx;
+using BepInEx;
 using BepInEx.Configuration;
 using BepInEx.Unity.IL2CPP;
 using HarmonyLib;
@@ -120,11 +120,15 @@ public static class PlayerUpdatePatch {
 [HarmonyPatch(typeof(AmongUsClient), nameof(AmongUsClient.OnPlayerLeft))]
 public static class PlayerLeftAnnouncementsPatch {
     public static void Postfix(AmongUsClient __instance, [HarmonyArgument(0)] ClientData data) {
-        var playerInfo = GameData.Instance?.GetPlayerById(data.Character.PlayerId);
-        if (playerInfo != null) {
-            string playerColor = playerInfo.DefaultOutfit.ColorId.ToString();
-            SpeechSynthesizer.SpeakText($"{playerColor} player left the game");
+        if (data == null) {
+            SpeechSynthesizer.SpeakText("An unknown player left the game");
+            return;
         }
+
+        // Retrieve the player's name from the ClientData object.
+        string playerName = data.PlayerName;
+
+        SpeechSynthesizer.SpeakText($"{playerName} left the game");
     }
 }
 
@@ -153,4 +157,3 @@ public static class ExileControllerPatch {
         SpeechSynthesizer.SpeakText(__instance.completeString);
     }
 }
-
