@@ -33,6 +33,7 @@ public partial class SusAccessPlugin : BasePlugin {
     // Core handlers for UI and navigation features
     public UIAccessibilityHandler uiHandler;
     public NavigationHandler navigationHandler;
+    public MenuLayoutConfigs menuLayoutConfigs;
 
     // Initializes the plugin, sets up configuration, and starts core systems
     public override void Load() {
@@ -66,6 +67,9 @@ public partial class SusAccessPlugin : BasePlugin {
             TaskDetectionKey
         );
 
+        // Initialize menu configurations
+        menuLayoutConfigs = new MenuLayoutConfigs(uiHandler, Log);
+
         // Initialize speech system
         try {
             SpeechSynthesizer.Initialize(Log);
@@ -85,15 +89,10 @@ public partial class SusAccessPlugin : BasePlugin {
             Log.LogError($"Failed to apply patches: {e}");
         }
 
-        Log.LogInfo("SusAccess loaded successfully!");
-    }
+        // Configure menus
+        menuLayoutConfigs.ConfigureAllMenus();
 
-    // Cleans up resources when the plugin is unloaded
-    public override bool Unload() {
-        Log.LogInfo("Unloading SusAccess...");
-        SpeechSynthesizer.Shutdown();
-        Harmony.UnpatchAll();
-        return true;
+        Log.LogInfo("SusAccess loaded successfully!");
     }
 }
 

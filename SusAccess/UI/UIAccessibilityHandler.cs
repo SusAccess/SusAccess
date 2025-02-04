@@ -15,6 +15,18 @@ public class MenuLayoutConfig {
     public List<string> OrderedElements { get; set; } = new();
     public List<string> HiddenElements { get; set; } = new();
     public bool HideUnorganizedElements { get; set; } = false;
+
+    // Required elements for this layout to be active
+    public List<string> RequiredElements { get; set; } = new();
+
+    // Custom speech mappings (element name -> custom speech text)
+    public Dictionary<string, string> CustomSpeechText { get; set; } = new();
+
+    // Custom speech providers (element name -> speech generator)
+    public Dictionary<string, Func<UiElement, string>> CustomSpeechProviders { get; set; } = new();
+
+    // Custom action handlers (element name -> action to perform)
+    public Dictionary<string, Action<UiElement>> ActionHandlers { get; set; } = [];
 }
 
 // Fluent builder for creating menu layouts
@@ -46,6 +58,30 @@ public class MenuLayoutBuilder {
     // Sets whether to hide elements not explicitly ordered
     public MenuLayoutBuilder HideUnorganizedElements(bool hide = true) {
         config.HideUnorganizedElements = hide;
+        return this;
+    }
+
+    // Specifies elements that must be present for this layout to be active
+    public MenuLayoutBuilder RequireElements(params string[] elements) {
+        config.RequiredElements.AddRange(elements);
+        return this;
+    }
+
+    // Adds custom speech text for an element
+    public MenuLayoutBuilder WithCustomSpeech(string elementName, string speechText) {
+        config.CustomSpeechText[elementName] = speechText;
+        return this;
+    }
+
+    // Adds a custom speech provider for complex element reading
+    public MenuLayoutBuilder WithCustomSpeechProvider(string elementName, Func<UiElement, string> provider) {
+        config.CustomSpeechProviders[elementName] = provider;
+        return this;
+    }
+
+    // Adds a custom action handler when navigating to an element
+    public MenuLayoutBuilder WithActionHandler(string elementName, Action<UiElement> handler) {
+        config.ActionHandlers[elementName] = handler;
         return this;
     }
 
@@ -82,7 +118,7 @@ public static class UIAccessibilityHandlerExtensions {
     }
 }
 
-// Handles general UI accessibility
+// Handles general UI accessibility features
 public class UIAccessibilityHandler {
     private const float VERTICAL_THRESHOLD = 0.1f;  // Distance threshold for grouping UI elements vertically
 
@@ -142,7 +178,6 @@ public class UIAccessibilityHandler {
         if (currentScene != sceneName) {
             logger.LogInfo($"Scene changing from '{currentScene}' to '{sceneName}'");
             currentScene = sceneName;
-            // Reset elements to force a refresh when entering new scene
             currentElements.Clear();
         }
     }
@@ -168,12 +203,19 @@ public class UIAccessibilityHandler {
 
     // Applies the menu configuration to sort and filter UI elements
     private List<UiElement> ApplyMenuConfig(List<UiElement> elements, MenuLayoutConfig config) {
+        // Check if required elements are present
+        if (config.RequiredElements.Any() &&
+            !config.RequiredElements.All(req =>
+                elements.Any(e => ((UnityEngine.Object)e).name.Equals(req, StringComparison.OrdinalIgnoreCase)))) {
+            return SortElementsByPosition(elements);
+        }
+
         var orderedElements = new List<UiElement>();
         var remainingElements = new List<UiElement>(elements);
 
-        // First, add elements in the specified order
-        foreach (string elementIdentifier in config.OrderedElements) {
-            var element = FindElementByIdentifier(remainingElements, elementIdentifier);
+        // Add elements in specified order
+        foreach (string elementName in config.OrderedElements) {
+            var element = FindElementByName(remainingElements, elementName);
             if (element != null) {
                 orderedElements.Add(element);
                 remainingElements.Remove(element);
@@ -204,26 +246,20 @@ public class UIAccessibilityHandler {
             .ToList();
     }
 
-    // Finds a UI element by its identifier (text content or GameObject name)
-    private UiElement FindElementByIdentifier(List<UiElement> elements, string identifier) {
-        return elements.FirstOrDefault(e => {
-            string buttonText = GetButtonText(e as PassiveButton);
-            string objectName = ((UnityEngine.Object)e).name;
-            return buttonText.Equals(identifier, StringComparison.OrdinalIgnoreCase) ||
-                   objectName.Equals(identifier, StringComparison.OrdinalIgnoreCase);
-        });
+    // Finds a UI element by its name
+    private UiElement FindElementByName(List<UiElement> elements, string name) {
+        return elements.FirstOrDefault(e =>
+            ((UnityEngine.Object)e).name.Equals(name, StringComparison.OrdinalIgnoreCase));
     }
 
     // Checks if an element should be hidden based on the configuration
     private bool IsElementHidden(UiElement element, List<string> hiddenElements) {
-        string buttonText = GetButtonText(element as PassiveButton);
         string objectName = ((UnityEngine.Object)element).name;
         return hiddenElements.Any(h =>
-            buttonText.Equals(h, StringComparison.OrdinalIgnoreCase) ||
             objectName.Equals(h, StringComparison.OrdinalIgnoreCase));
     }
 
-    // Gets the readable text for a button from various possible sources
+    // Gets the readable text from a button
     private string GetButtonText(PassiveButton button) {
         try {
             if (button == null)
@@ -238,7 +274,7 @@ public class UIAccessibilityHandler {
             if (tmpProText != null && !string.IsNullOrEmpty(tmpProText.text))
                 return tmpProText.text;
 
-            // Fall back to GameObject name - try multiple ways to get it
+            // Fall back to GameObject name
             try {
                 if (!string.IsNullOrEmpty(button.name))
                     return button.name;
@@ -258,7 +294,7 @@ public class UIAccessibilityHandler {
         }
     }
 
-    // Gets the element's position index in the current UI for announcements
+    // Gets the element's position index for announcements
     private string GetElementIndex(ControllerManager manager, UiElement element) {
         var elements = GetSortedElements(manager);
         int index = elements.IndexOf(element);
@@ -333,17 +369,15 @@ public class UIAccessibilityHandler {
         HandleFocusChange(manager);
     }
 
-    // Checks if the UI elements have meaningfully changed by comparing their IDs as sets
+    // Checks if the UI elements have meaningfully changed
     private bool HasElementsChanged(List<UiElement> newElements) {
         try {
             if (currentElements == null || newElements == null)
                 return true;
 
-            // First check if counts are different
             if (currentElements.Count != newElements.Count)
                 return true;
 
-            // Create sets of instance IDs for comparison
             var currentIds = new HashSet<int>(currentElements
                 .Where(e => e != null)
                 .Select(e => ((MonoBehaviour)e).gameObject.GetInstanceID()));
@@ -352,28 +386,21 @@ public class UIAccessibilityHandler {
                 .Where(e => e != null)
                 .Select(e => ((MonoBehaviour)e).gameObject.GetInstanceID()));
 
-            // Compare the sets - order doesn't matter
             return !currentIds.SetEquals(newIds);
         }
         catch (Exception e) {
             logger.LogError($"Error in HasElementsChanged: {e}");
-            return true; // Default to true on error to ensure we don't miss updates
+            return true;
         }
     }
 
-    // Handles UI element changes including logging and announcements
+    // Handles UI element changes
     private void HandleElementsChanged(ControllerManager manager, List<UiElement> newElements) {
         try {
-            // Check for scene changes first
             UpdateSceneInfo();
 
-            if (manager == null) {
-                logger.LogWarning("Null manager in HandleElementsChanged");
-                return;
-            }
-
-            if (newElements == null) {
-                logger.LogWarning("Null elements list in HandleElementsChanged");
+            if (manager == null || newElements == null) {
+                logger.LogWarning("Null manager or elements in HandleElementsChanged");
                 return;
             }
 
@@ -385,12 +412,10 @@ public class UIAccessibilityHandler {
 
             currentElements = newElements.Where(e => e != null).ToList();
 
-            // Only announce if there are elements to announce
             if (currentElements.Count > 0) {
                 SpeechSynthesizer.SpeakText($"{currentElements.Count} items available.");
 
                 try {
-                    // Auto-focus first element if available
                     var firstElement = currentElements[0];
                     if (firstElement != null) {
                         manager.HighlightSelection(firstElement);
@@ -413,11 +438,33 @@ public class UIAccessibilityHandler {
 
     // Handles focus changes between UI elements
     private void HandleFocusChange(ControllerManager manager) {
-        var currentButton = manager.CurrentUiState?.CurrentSelection?.GetComponent<PassiveButton>();
+        try {
+            var currentButton = manager.CurrentUiState?.CurrentSelection?.GetComponent<PassiveButton>();
 
-        if (currentButton != null && currentButton != lastFocusedButton) {
-            AnnounceElement(manager.CurrentUiState.CurrentSelection, manager);
-            lastFocusedButton = currentButton;
+            if (currentButton != null && currentButton != lastFocusedButton) {
+                var element = manager.CurrentUiState.CurrentSelection;
+
+                // Announce the element
+                AnnounceElement(element, manager);
+
+                // Check for and execute any custom action handlers
+                if (sceneMenuConfigs.TryGetValue(currentScene, out var config)) {
+                    string elementName = ((UnityEngine.Object)element).name;
+                    if (config.ActionHandlers.TryGetValue(elementName, out var handler)) {
+                        try {
+                            handler(element);
+                        }
+                        catch (Exception e) {
+                            logger.LogError($"Error executing action handler for {elementName}: {e}");
+                        }
+                    }
+                }
+
+                lastFocusedButton = currentButton;
+            }
+        }
+        catch (Exception e) {
+            logger.LogError($"Error in HandleFocusChange: {e}");
         }
     }
 
@@ -429,12 +476,30 @@ public class UIAccessibilityHandler {
                 return;
             }
 
-            string buttonText = GetButtonText(element as PassiveButton);
+            string elementName = ((UnityEngine.Object)element).name;
             string indexInfo = GetElementIndex(manager, element);
+            string speechText = "";
 
-            // Only announce if we have button text - avoid announcing just the index
-            if (!string.IsNullOrEmpty(buttonText)) {
-                SpeechSynthesizer.SpeakText($"{buttonText}{indexInfo}");
+            // Check current scene's config for custom speech
+            if (sceneMenuConfigs.TryGetValue(currentScene, out var config)) {
+                // Try custom speech provider first
+                if (config.CustomSpeechProviders.TryGetValue(elementName, out var provider)) {
+                    speechText = provider(element);
+                }
+                // Then try custom speech text
+                else if (config.CustomSpeechText.TryGetValue(elementName, out var customText)) {
+                    speechText = customText;
+                }
+            }
+
+            // Fall back to default if no custom speech defined
+            if (string.IsNullOrEmpty(speechText)) {
+                speechText = GetButtonText(element as PassiveButton);
+            }
+
+            // Only announce if we have something to say
+            if (!string.IsNullOrEmpty(speechText)) {
+                SpeechSynthesizer.SpeakText($"{speechText}{indexInfo}");
             }
         }
         catch (Exception e) {
